@@ -1,4 +1,4 @@
-/*
+    /*
 Ciclo1: Tablas
 */
 CREATE TABLE Personas(
@@ -246,6 +246,113 @@ ADD CONSTRAINT CHK_Respuestas_Correo CHECK (LENGTH(CORREO) - LENGTH(REPLACE(CORR
 
 ALTER TABLE PQRSRESPUESTAS
 ADD CONSTRAINT CHK_Respuestas_Evalucacion CHECK (1 <= evaluacion AND evaluacion <= 5);
+
+/*CRUD: SOLICITUDES*/
+
+/*Tuplas*/
+ALTER TABLE SOLICITUDES
+ADD CONSTRAINT CK_Solicitudes_Posiciones CHECK (ubicacion_Inicial <> ubicacion_Final);
+
+/*Disparadores*/
+CREATE SEQUENCE Seq_CodigoSolicitudes START WITH 1 INCREMENT BY 1 MAXVALUE 99999999;
+CREATE OR REPLACE TRIGGER TR_Solicitudes_CodigoFecha
+BEFORE INSERT ON SOLICITUDES
+FOR EACH  ROW
+BEGIN
+        :new.codigo := Seq_CodigoSolicitudes.NEXTVAL;
+        :new.fecha_creacion := SYSDATE;
+END;
+
+
+CREATE OR REPLACE TRIGGER TR_Solicitudes_FechaViaje
+BEFORE INSERT ON SOLICITUDES
+FOR EACH  ROW 
+BEGIN
+    IF (:new.FECHA_VIAJE <= SYSDATE) THEN
+        RAISE_APPLICATION_ERROR(-20001,'La fecha de viaje debe ser superior a la actual');
+    END IF;
+END;
+
+CREATE OR REPLACE TRIGGER TR_Solicitudes_estadoInicial
+BEFORE INSERT ON SOLICITUDES
+FOR EACH  ROW 
+BEGIN
+    :new.estado := 'P';
+END;
+
+CREATE OR REPLACE TRIGGER TR_Solicitudes_SolicitudActiva
+BEFORE INSERT ON Solicitudes
+FOR EACH ROW
+DECLARE
+    solicitudes_activas NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO solicitudes_activas
+    FROM solicitudes
+    WHERE cliente = :new.CLIENTE AND (estado = 'P' OR estado = 'A');
+    IF solicitudes_activas > 1 THEN
+        RAISE_APPLICATION_ERROR(-20001,'Un cliente no puede tener m?s de una solicitud activa');
+    end if;
+END;
+
+CREATE OR REPLACE TRIGGER TR_Solicitudes_ViajePrecio
+BEFORE INSERT ON Solicitudes
+FOR EACH ROW
+BEGIN
+    :new.Fecha_Viaje := NULL;
+    :new.precio := NULL;
+END;
+
+CREATE OR REPLACE TRIGGER TR_Solicitudes_NoActualizar
+BEFORE UPDATE OF codigo, fecha_creacion,plataforma,cliente,ubicacion_inicial,ubicacion_final
+ON SOLICITUDES
+BEGIN
+    RAISE_APPLICATION_ERROR(-20001,'Unicamente se pueden cambiar los valores de Precio; fecha de viaje y estado');
+END;
+
+CREATE OR REPLACE TRIGGER TR_Solicitudes_ActualizarConSolicitudPendiente
+BEFORE UPDATE OF precio, FECHA_VIAJE
+ON SOLICITUDES
+FOR EACH ROW
+BEGIN
+    IF(:old.estado <> 'P' OR :new.estado <> 'P') THEN
+        RAISE_APPLICATION_ERROR(-20001,'El precio o fecha de viaje solo se pueden cambiar si el estado de la solicitud es pendiente');
+    END IF;
+END;
+
+CREATE OR REPLACE TRIGGER TR_Solicitudes_FechaViajeSuperior
+BEFORE UPDATE OF Fecha_Viaje ON SOLICITUDES
+FOR EACH ROW
+BEGIN
+    IF (:new.Fecha_viaje <= SYSDATE OR :new.Fecha_viaje <= :old.Fecha_creacion) THEN 
+        RAISE_APPLICATION_ERROR(-20001,'La fecha de viaje debe ser superior a la fecha actual y a la de creaci?n');
+    END IF;
+END;
+
+CREATE OR REPLACE TRIGGER TR_cambiarEstado
+BEFORE UPDATE ON SOLICITUDES
+FOR EACH ROW
+BEGIN
+    IF (:new.estado = 'C') THEN
+        RAISE_APPLICATION_ERROR(-20001,'El estado de la solicitud no se puede cambiar a cancelado');
+    END IF;
+END;
+
+CREATE OR REPLACE TRIGGER TR_Solicitudes_Eliminar
+BEFORE DELETE ON SOLICITUDES
+BEGIN
+    RAISE_APPLICATION_ERROR(-20001,'No se permite eliminar una solicitud');
+END;
+/*XDisparadores*/
+DROP TRIGGER TR_Solicitudes_CodigoFecha;
+DROP TRIGGER TR_Solicitudes_FechaViaje;
+DROP TRIGGER TR_Solicitudes_estadoInicial;
+DROP TRIGGER TR_Solicitudes_SolicitudActiva;
+DROP TRIGGER TR_Solicitudes_ViajePrecio;
+DROP TRIGGER TR_Solicitudes_NoActualizar;
+DROP TRIGGER TR_Solicitudes_ActualizarConSolicitudPendiente;
+DROP TRIGGER TR_Solicitudes_FechaViajeSuperior;
+DROP TRIGGER TR_Solicitudes_Eliminar;
+
 
 /*LAB05*/
 
