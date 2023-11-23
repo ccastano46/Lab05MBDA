@@ -248,6 +248,17 @@ ALTER TABLE PQRSRESPUESTAS
 ADD CONSTRAINT CHK_Respuestas_Evalucacion CHECK (1 <= evaluacion AND evaluacion <= 5);
 
 /*CRUD: SOLICITUDES*/
+/*Funcion que me retorna el codigo de la fila especificada de la tabla SOLICITUDES*/
+CREATE OR REPLACE FUNCTION Codigo_Solicitudes(fila NUMBER) RETURN NUMBER IS
+codigoSolicitado NUMBER(9,0);
+codigoSolicitud  NUMBER(9,0);
+BEGIN
+    DBMS_OUTPUT.PUT_LINE(fila);
+    SELECT codigo INTO codigoSolicitado FROM SOLICITUDES WHERE rownum = fila;
+     DBMS_OUTPUT.PUT_LINE(codigoSolicitado);
+    codigoSolicitud := codigoSolicitado;
+    RETURN codigoSolicitud;
+END Codigo_Solicitudes;
 
 /*Tuplas*/
 ALTER TABLE SOLICITUDES
@@ -329,7 +340,7 @@ BEGIN
 END;
 
 CREATE OR REPLACE TRIGGER TR_cambiarEstado
-BEFORE UPDATE ON SOLICITUDES
+BEFORE UPDATE OF estado ON SOLICITUDES
 FOR EACH ROW
 BEGIN
     IF (:new.estado = 'C') THEN
@@ -337,11 +348,7 @@ BEGIN
     END IF;
 END;
 
-CREATE OR REPLACE TRIGGER TR_Solicitudes_Eliminar
-BEFORE DELETE ON SOLICITUDES
-BEGIN
-    RAISE_APPLICATION_ERROR(-20001,'No se permite eliminar una solicitud');
-END;
+
 /*XDisparadores*/
 DROP TRIGGER TR_Solicitudes_CodigoFecha;
 DROP TRIGGER TR_Solicitudes_FechaViaje;
@@ -351,7 +358,57 @@ DROP TRIGGER TR_Solicitudes_ViajePrecio;
 DROP TRIGGER TR_Solicitudes_NoActualizar;
 DROP TRIGGER TR_Solicitudes_ActualizarConSolicitudPendiente;
 DROP TRIGGER TR_Solicitudes_FechaViajeSuperior;
-DROP TRIGGER TR_Solicitudes_Eliminar;
+
+/*Ciclo1: CRUD: PQRS*/
+/*Tuplas*/
+
+/*Disparadores*/
+CREATE OR REPLACE TRIGGER TR_PQRSS_Ticked
+BEFORE INSERT ON PQRSS
+FOR EACH ROW
+BEGIN
+    :new.ticked := :new.tipo || TO_CHAR (SYSDATE,'YYYYMMDDHH24MI');
+END;
+
+CREATE OR REPLACE TRIGGER TR_PQRSS_Tipo
+BEFORE INSERT ON PQRSS
+FOR EACH ROW 
+BEGIN
+    IF (:new.tipo IS NULL) THEN
+        :new.tipo := 'S';
+    END IF;
+END;
+
+CREATE OR REPLACE TRIGGER TR_PQRSS_FechaRadicacion
+BEFORE INSERT ON PQRSS
+FOR EACH ROW 
+BEGIN
+    :new.radicacion := SYSDATE;
+END;
+
+CREATE OR REPLACE TRIGGER TR_PQRSS_estadoInicial
+BEFORE INSERT ON PQRSS
+FOR EACH ROW 
+BEGIN
+    :new.estado := 'ABIERTO';
+END;
+
+CREATE OR REPLACE TRIGGER TR_PQRSS_Modificar
+BEFORE UPDATE OF ticked, radicacion, cierre, descripcion, tipo,solicitud ON PQRSS 
+BEGIN
+    RAISE_APPLICATION_ERROR(-20001,'Del PQRS solo se puede modificar su estado');
+END;
+
+CREATE OR REPLACE TRIGGER TR_PQRSS_CerrarRechazar
+BEFORE UPDATE OF estado ON PQRSS
+FOR EACH ROW
+BEGIN
+    IF (:new.estado = 'RECHAZADA' OR    :new.estado = 'CANCELADA') THEN 
+        :new.cierre := TRUNC(SYSDATE);
+    END IF;
+END;
+
+/*XDisparadores*/
 
 
 /*LAB05*/
