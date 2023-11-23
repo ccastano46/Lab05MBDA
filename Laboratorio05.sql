@@ -177,7 +177,8 @@ FOREIGN KEY (SOLICITUD) REFERENCES SOLICITUDES(CODIGO);
 
 ALTER TABLE ANEXOS
 ADD CONSTRAINT FK_Anexos_PQRSS
-FOREIGN KEY (PQRS) REFERENCES PQRSS(TICKED);
+FOREIGN KEY (PQRS) REFERENCES PQRSS(TICKED)
+ON DELETE CASCADE;
 
 ALTER TABLE VEHICULOS
 ADD CONSTRAINT FK_Vehiculos_Conductor
@@ -259,7 +260,7 @@ BEGIN
     codigoSolicitud := codigoSolicitado;
     RETURN codigoSolicitud;
 END Codigo_Solicitudes;
-
+/
 /*Tuplas*/
 ALTER TABLE SOLICITUDES
 ADD CONSTRAINT CK_Solicitudes_Posiciones CHECK (ubicacion_Inicial <> ubicacion_Final);
@@ -273,8 +274,7 @@ BEGIN
         :new.codigo := Seq_CodigoSolicitudes.NEXTVAL;
         :new.fecha_creacion := SYSDATE;
 END;
-
-
+/
 CREATE OR REPLACE TRIGGER TR_Solicitudes_FechaViaje
 BEFORE INSERT ON SOLICITUDES
 FOR EACH  ROW 
@@ -283,14 +283,14 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20001,'La fecha de viaje debe ser superior a la actual');
     END IF;
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_Solicitudes_estadoInicial
 BEFORE INSERT ON SOLICITUDES
 FOR EACH  ROW 
 BEGIN
     :new.estado := 'P';
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_Solicitudes_SolicitudActiva
 BEFORE INSERT ON Solicitudes
 FOR EACH ROW
@@ -304,7 +304,7 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20001,'Un cliente no puede tener m?s de una solicitud activa');
     end if;
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_Solicitudes_ViajePrecio
 BEFORE INSERT ON Solicitudes
 FOR EACH ROW
@@ -312,14 +312,14 @@ BEGIN
     :new.Fecha_Viaje := NULL;
     :new.precio := NULL;
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_Solicitudes_NoActualizar
 BEFORE UPDATE OF codigo, fecha_creacion,plataforma,cliente,ubicacion_inicial,ubicacion_final
 ON SOLICITUDES
 BEGIN
     RAISE_APPLICATION_ERROR(-20001,'Unicamente se pueden cambiar los valores de Precio; fecha de viaje y estado');
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_Solicitudes_ActualizarConSolicitudPendiente
 BEFORE UPDATE OF precio, FECHA_VIAJE
 ON SOLICITUDES
@@ -329,7 +329,7 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20001,'El precio o fecha de viaje solo se pueden cambiar si el estado de la solicitud es pendiente');
     END IF;
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_Solicitudes_FechaViajeSuperior
 BEFORE UPDATE OF Fecha_Viaje ON SOLICITUDES
 FOR EACH ROW
@@ -338,7 +338,7 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20001,'La fecha de viaje debe ser superior a la fecha actual y a la de creaci?n');
     END IF;
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_cambiarEstado
 BEFORE UPDATE OF estado ON SOLICITUDES
 FOR EACH ROW
@@ -347,7 +347,7 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20001,'El estado de la solicitud no se puede cambiar a cancelado');
     END IF;
 END;
-
+/
 
 /*XDisparadores*/
 DROP TRIGGER TR_Solicitudes_CodigoFecha;
@@ -358,10 +358,16 @@ DROP TRIGGER TR_Solicitudes_ViajePrecio;
 DROP TRIGGER TR_Solicitudes_NoActualizar;
 DROP TRIGGER TR_Solicitudes_ActualizarConSolicitudPendiente;
 DROP TRIGGER TR_Solicitudes_FechaViajeSuperior;
-
+DROP FUNCTION CODIGO_SOLICITUDES;
 /*Ciclo1: CRUD: PQRS*/
+/*Atributos*/
+ALTER TABLE PQRSS
+MODIFY tipo DEFAULT 'S';
+
 /*Tuplas*/
 
+ALTER TABLE PQRSS
+ADD CONSTRAINT CK_PQRSS_FechaCierreSuperior CHECK(CIERRE > RADICACION);
 /*Disparadores*/
 CREATE OR REPLACE TRIGGER TR_PQRSS_Ticked
 BEFORE INSERT ON PQRSS
@@ -369,36 +375,27 @@ FOR EACH ROW
 BEGIN
     :new.ticked := :new.tipo || TO_CHAR (SYSDATE,'YYYYMMDDHH24MI');
 END;
-
-CREATE OR REPLACE TRIGGER TR_PQRSS_Tipo
-BEFORE INSERT ON PQRSS
-FOR EACH ROW 
-BEGIN
-    IF (:new.tipo IS NULL) THEN
-        :new.tipo := 'S';
-    END IF;
-END;
-
+/
 CREATE OR REPLACE TRIGGER TR_PQRSS_FechaRadicacion
 BEFORE INSERT ON PQRSS
 FOR EACH ROW 
 BEGIN
     :new.radicacion := SYSDATE;
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_PQRSS_estadoInicial
 BEFORE INSERT ON PQRSS
 FOR EACH ROW 
 BEGIN
     :new.estado := 'ABIERTO';
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_PQRSS_Modificar
 BEFORE UPDATE OF ticked, radicacion, cierre, descripcion, tipo,solicitud ON PQRSS 
 BEGIN
     RAISE_APPLICATION_ERROR(-20001,'Del PQRS solo se puede modificar su estado');
 END;
-
+/
 CREATE OR REPLACE TRIGGER TR_PQRSS_CerrarRechazar
 BEFORE UPDATE OF estado ON PQRSS
 FOR EACH ROW
@@ -407,30 +404,78 @@ BEGIN
         :new.cierre := TRUNC(SYSDATE);
     END IF;
 END;
+/
+CREATE OR REPLACE TRIGGER TR_Anexos_PQRSAbierto
+BEFORE INSERT ON ANEXOS
+FOR EACH ROW
+DECLARE
+    estadoPQRS VARCHAR2(50);
+BEGIN
+    SELECT estado INTO estadoPQRS FROM PQRSS WHERE(TICKED = :NEW.PQRS);
+    IF (estadoPQRS <> 'ABIERTO') THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Si el PQRS no esta abierto, entonces no se puede agregar anexo');
+    END IF;
+END;    
+/
 
+CREATE OR REPLACE TRIGGER TR_Anexos_Codigo
+BEFORE INSERT ON ANEXOS
+FOR EACH ROW
+BEGIN
+    :NEW.ID := TRUNC(DBMS_RANDOM.VALUE(1,999999999));
+END;
+/
 /*XDisparadores*/
+DROP TRIGGER TR_PQRSS_Ticked;
+DROP TRIGGER TR_PQRSS_FechaRadicacion;
+DROP TRIGGER TR_PQRSS_estadoInicial;
+DROP TRIGGER TR_PQRSS_Modificar;
+DROP TRIGGER TR_PQRSS_CerrarRechazar;
+DROP TRIGGER TR_Anexos_PQRSAbierto;
+DROP TRIGGER TR_Anexos_Codigo;
 
 
 /*LAB05*/
 
+/*Inserción de mi información a MBDA.data*/
 SELECT * FROM mbda.data;
 INSERT INTO mbda.data(EMAIL,CEDULA,CELULAR,NOMBRES) VALUES('camilo.castano-q@mail.escuelaing.edu.co','1000271422','3183074075','Camilo Castaño');
-
+/*Eliminación y Actualización en MBDA.data*/
 DELETE FROM mbda.data WHERE nombres = 'Camilo Castaño';
 
 UPDATE mbda.data
 SET nombres = 'CC'
 WHERE nombres= 'Camilo Castaño';
-
-SELECT COUNT(*) FROM mbda.data;
-
-
+/*Importación a Perfiles y Clientes*/
 INSERT INTO PERSONAS select * from(
 WITH conteo AS (SELECT cedula AS C,COUNT(CEDULA) as unic from mbda.data GROUP BY cedula HAVING COUNT(CEDULA) = 1)
 SELECT SUBSTR(cedula,1,6) || TRUNC(DBMS_RANDOM.VALUE(100,999)) AS ID, 'CC' AS TIPO, SUBSTR(CEDULA,1,10) AS NUMERO, NOMBRES AS NOMBRE, trunc(SYSDATE) AS REGISTRO, CELULAR, EMAIL AS CORREO
 FROM MBDA.DATA
 where(MBDA.DATA.CEDULA IN (SELECT C FROM CONTEO)) and NOT (EMAIL IS NULL OR CEDULA IS NULL OR CELULAR IS NULL OR MBDA.DATA.NOMBRES IS NULL ));
 
+INSERT INTO CLIENTES SELECT  ID, 'Espanol' AS idioma FROM PERSONAS;
+
+/*CRUDE*/
+CREATE OR REPLACE PACKAGE PC_PQRS AS
+    PROCEDURE AD_PQRS(DESCRIPCION IN VARCHAR2, TIPO IN CHAR, SOLICITUD IN NUMBER, NOMBREANEXO IN VARCHAR2, URLANEXO IN VARCHAR2) ;
+    PROCEDURE AD_ANEXO(NOMBRE IN VARCHAR2, URL IN VARCHAR2);
+    FUNCTION CO_PQRS(TICKED IN VARCHAR2) RETURN SYS_REFCURSOR;
+    FUNCTION CO_ANEXOS(TICKEDPQRS IN VARCHAR2) RETURN SYS_REFCURSOR;
+    FUNCTION EL_PQRS(TICKED IN VARCHAR2) RETURN BOOLEAN;
+END PC_PQRS;
+/
+/*XTablas*/
+DROP TABLE VEHICULOS;
+DROP TABLE TARJETAS_POR_CLIENTE;
+DROP TABLE TARJETAS;
+DROP TABLE PQRSRESPUESTAS;
+DROP TABLE ANEXOS;
+DROP TABLE PQRSS;
+DROP TABLE CONDUCTORES;
+DROP TABLE SOLICITUDES;
+DROP TABLE POSICIONES;
+DROP TABLE CLIENTES;
+DROP TABLE PERSONAS;
 
 
 
